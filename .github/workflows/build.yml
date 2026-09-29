@@ -1,0 +1,52 @@
+name: Build firmware
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio/libdeps
+          key: pio-${{ hashFiles('platformio.ini') }}
+
+      - name: Installer PlatformIO
+        run: pip install platformio
+
+      - name: Compiler
+        run: pio run -e t-embed-cc1101
+
+      - name: Rassembler les binaires
+        run: |
+          mkdir -p release
+          B=.pio/build/t-embed-cc1101
+          # .bin "application" : celui a mettre sur la carte SD pour le Launcher
+          cp $B/firmware.bin release/tagtinker-tembed-launcher.bin
+          ls -l release
+
+      - name: Image complete (flash directe a l'adresse 0x0)
+        continue-on-error: true
+        run: |
+          B=.pio/build/t-embed-cc1101
+          BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -n1)
+          python ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32s3 merge_bin \
+            -o release/tagtinker-tembed-full.bin \
+            0x0 $B/bootloader.bin 0x8000 $B/partitions.bin 0xe000 "$BOOT_APP0" 0x10000 $B/firmware.bin
+          ls -l release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tagtinker-tembed
+          path: release/*.bin
